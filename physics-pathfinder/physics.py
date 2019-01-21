@@ -8,60 +8,73 @@
 # on after that period of time. This can help you do more complex simulations
 # of your robot code without too much extra effort.
 #
-# NOTE: THIS API IS ALPHA AND WILL MOST LIKELY CHANGE!
-#       ... if you have better ideas on how to implement, submit a patch!
-#
+
 
 import math
-from pyfrc.physics import drivetrains
+
+from pyfrc.physics import motor_cfgs, tankmodel
+from pyfrc.physics.units import units
 
 
 class PhysicsEngine(object):
-    '''
+    """
         Simulates a motor moving something that strikes two limit switches,
         one on each end of the track. Obviously, this is not particularly
         realistic, but it's good enough to illustrate the point
-    '''
-    
+    """
+
     def __init__(self, physics_controller):
-        '''
+        """
             :param physics_controller: `pyfrc.physics.core.PhysicsInterface` object
                                        to communicate simulation effects to
-        '''
-        
+        """
+
         self.physics_controller = physics_controller
         self.position = 0
-        
-        # speed should be same as robot.MAX_VELOCITY
-        self.drivetrain = drivetrains.TwoMotorDrivetrain(speed=5)
-        
+
+        # Change these parameters to fit your robot!
+        bumper_width = 3.25 * units.inch
+
+        # fmt: off
+        self.drivetrain = tankmodel.TankModel.theory(
+            motor_cfgs.MOTOR_CFG_CIM,           # motor configuration
+            110 * units.lbs,                    # robot mass
+            10.71,                              # drivetrain gear ratio
+            2,                                  # motors per side
+            22 * units.inch,                    # robot wheelbase
+            23 * units.inch + bumper_width * 2, # robot width
+            32 * units.inch + bumper_width * 2, # robot length
+            6 * units.inch,                     # wheel diameter
+        )
+        # fmt: on
+
         # Precompute the encoder constant
         # -> encoder counts per revolution / wheel circumference
         self.kEncoder = 360 / (0.5 * math.pi)
-        
+
         self.l_distance = 0
         self.r_distance = 0
-            
+
     def update_sim(self, hal_data, now, tm_diff):
-        '''
+        """
             Called when the simulation parameters for the program need to be
             updated.
             
             :param now: The current time as a float
             :param tm_diff: The amount of time that has passed since the last
                             time that this function was called
-        '''
-        
+        """
+
         # Simulate the drivetrain
-        l_motor = hal_data['pwm'][1]['value']
-        r_motor = hal_data['pwm'][2]['value']
-        
-        speed, rotation = self.drivetrain.get_vector(l_motor, r_motor)
-        self.physics_controller.drive(speed, rotation, tm_diff)
-        
+        l_motor = hal_data["pwm"][1]["value"]
+        r_motor = hal_data["pwm"][2]["value"]
+
+        x, y, angle = self.drivetrain.get_distance(l_motor, r_motor, tm_diff)
+        self.physics_controller.distance_drive(x, y, angle)
+
         # Update encoders
-        self.l_distance += self.drivetrain.l_speed * tm_diff
-        self.r_distance += self.drivetrain.r_speed * tm_diff
-        
-        hal_data['encoder'][0]['count'] = int(self.l_distance * self.kEncoder)
-        hal_data['encoder'][1]['count'] = int(self.l_distance * self.kEncoder)
+        self.l_distance += self.drivetrain.l_velocity * tm_diff
+        self.r_distance += self.drivetrain.r_velocity * tm_diff
+
+        hal_data["encoder"][0]["count"] = int(self.l_distance * self.kEncoder)
+        hal_data["encoder"][1]["count"] = int(self.r_distance * self.kEncoder)
